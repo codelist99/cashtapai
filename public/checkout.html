@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Secure Checkout | CashTap AI</title>
+  <link rel="preconnect" href="https://secure.nmi.com">
+  <link rel="stylesheet" href="/assets/checkout.css">
+</head>
+<body>
+  <div class="topbar">SECURE CHECKOUT — 256-BIT ENCRYPTED</div>
+  <header><strong>CashTap AI</strong><span>Secure Order Form</span></header>
+  <main>
+    <section class="headline"><h1>Complete Your CashTap AI Order</h1><p>Get immediate access with one secure payment of only <b>$17.</b></p></section>
+    <form id="paymentForm">
+      <section class="card">
+        <h2>1. Contact Information</h2>
+        <div class="two"><label>First name<input id="firstName" autocomplete="given-name" required></label><label>Last name<input id="lastName" autocomplete="family-name" required></label></div>
+        <label>Email address<input id="email" type="email" autocomplete="email" required></label>
+        <label>Phone number<input id="phone" type="tel" autocomplete="tel" required></label>
+        <h2>2. Billing Address</h2>
+        <label>Street address<input id="address" autocomplete="street-address" required></label>
+        <div class="three"><label>City<input id="city" autocomplete="address-level2" required></label><label>State<input id="state" autocomplete="address-level1" required></label><label>ZIP<input id="zip" autocomplete="postal-code" required></label></div>
+      </section>
+      <section class="card payment">
+        <h2>3. Secure Payment</h2>
+        <label>Card number<div id="cardNumber" class="hosted"></div></label>
+        <div class="two"><label>Expiration<div id="cardExpiration" class="hosted"></div></label><label>Security code<div id="cardCvv" class="hosted"></div></label></div>
+        <div class="summary"><span>CashTap AI — Lifetime Access</span><strong>$17.00</strong></div>
+        <div class="total"><span>Total</span><strong>$17.00</strong></div>
+        <label class="consent"><input id="consent" type="checkbox" required><span>I authorize this $17 one-time charge and securely storing my payment method with NMI for optional one-click upgrades I choose on subsequent pages.</span></label>
+        <div id="paymentError" class="error" role="alert"></div>
+        <button id="checkoutButton" type="button" disabled>LOADING SECURE PAYMENT…</button>
+        <p class="fine">Your card details are tokenized directly by NMI and are never stored on this website.</p>
+      </section>
+    </form>
+    <section class="guarantee"><b>30-Day Satisfaction Guarantee</b><p>Your purchase is protected by the refund policy displayed on the CashTap AI website.</p></section>
+  </main>
+  <script src="/assets/checkout.js"></script>
+</body>
+</html>

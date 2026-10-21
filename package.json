@@ -1,0 +1,10 @@
+{
+  "name": "cashtap-ai-funnel",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "mirror": "node tools/mirror.mjs",
+    "start": "node --env-file-if-exists=.env --env-file-if-exists=.env.local server.mjs"
+  }
+}
