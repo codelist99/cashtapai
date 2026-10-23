@@ -1,7 +1,10 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "functions": {
-    "api/index.mjs": { "includeFiles": "{**/*.html,public/**}", "maxDuration": 30 }
+    "server.mjs": {
+      "includeFiles": "{fe-e,oto1-e,oto2-e,oto3-e,oto4-e,oto5-e,oto6-e,oto7-e,thankyou-e,public}/**",
+      "maxDuration": 30
+    }
   },
   "rewrites": [
     { "source": "/(.*)", "destination": "/api/index?__path=/$1" }
