@@ -1,10 +1,10 @@
 (() => {
-  if (false && /^\/thankyou\/?$/.test(location.pathname)) {
+  if (/^\/thankyou-e\/?$/.test(location.pathname)) {
     const ensureCallout = () => {
       if (document.querySelector('.wc-call-now')) return;
       const callout = document.createElement('section');
       callout.className = 'wc-call-now';
-      callout.innerHTML = '<div><h1>Congratulations</h1><p class="thanks">Thanks for purchasing WifiCode</p><strong>YOUR ORDER IS COMPLETE</strong><h2>Step 1: Call Our Office Now To Get Started</h2><a class="phone" href="tel:+12067032153">(206) 703-2153</a><p>Tap the number or call now so our team can help you get started.</p><div class="or">— OR —</div><a class="schedule" href="https://cal.com/support-staff-wznd51/wificode-onboarding" target="_blank" rel="noreferrer noopener">Schedule Your Onboarding Call</a></div>';
+      callout.innerHTML = '<div><h1>Congratulations</h1><p class="thanks">Thanks for purchasing CashTap AI</p><strong>YOUR ORDER IS COMPLETE</strong><h2>Step 1: Call Our Office Now To Get Started</h2><a class="phone" href="tel:+18282571162">(828) 257-1162</a><p>Tap the number or call now so our team can help you get started.</p><div class="or">— OR —</div><a class="schedule" href="https://cal.com/support-staff-wznd51/wificode-onboarding" target="_blank" rel="noreferrer noopener">Schedule Your Onboarding Call</a></div>';
       document.body.prepend(callout);
     };
     if (!document.getElementById('wc-call-now-style')) {
@@ -17,7 +17,7 @@
     addEventListener('load', ensureCallout, { once:true });
     setTimeout(ensureCallout, 500);
     setTimeout(ensureCallout, 2000);
-    new MutationObserver(ensureCallout).observe(document.body, { childList:true });
+    new MutationObserver(ensureCallout).observe(document.documentElement, { childList:true, subtree:true });
     document.querySelectorAll('a[href*="perpetualincome365.convertri.com/7figure-everwebinar-registration"]').forEach(link=>{link.href='/webinar'});
   }
   const params = new URLSearchParams(location.search);
