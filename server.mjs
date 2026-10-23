@@ -98,4 +98,6 @@ export async function handler(req,res) {
   catch(error) { console.error(error); json(res,500,{error:'Server error'}); }
 }
 
+export default handler;
+
 if(!process.env.VERCEL) http.createServer(handler).listen(port,()=>console.log(`CashTap AI running at http://localhost:${port}`));
