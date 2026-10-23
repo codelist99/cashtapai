@@ -1,6 +1,12 @@
 (() => {
   if (/^\/thankyou-e\/?$/.test(location.pathname)) {
+    const wifiRoutes = new Set(['/webinar','/terms','/pp','/refund','/compliance','/earnings']);
+    const repairLinks = () => document.querySelectorAll('a[href]').forEach(link => {
+      const href = link.getAttribute('href');
+      if (wifiRoutes.has(href)) link.href = `https://wificode.dev${href}`;
+    });
     const ensureCallout = () => {
+      repairLinks();
       if (document.querySelector('.wc-call-now')) return;
       const callout = document.createElement('section');
       callout.className = 'wc-call-now';
