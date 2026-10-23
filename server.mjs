@@ -127,7 +127,7 @@ async function staticFile(req,res,url) {
 }
 
 export async function handler(req,res) {
-  try { let url=new URL(req.url,`http://${req.headers.host||'localhost'}`); const rewritten=url.searchParams.get('__path'); if(rewritten) url=new URL('/'+rewritten.replace(/^\//,''),url); if(url.pathname.startsWith('/api/')) await api(req,res,url); else await staticFile(req,res,url); }
+  try { let url=new URL(req.url,`http://${req.headers.host||'localhost'}`); const rewritten=url.searchParams.get('__path'); if(rewritten){const original=url;url=new URL('/'+rewritten.replace(/^\//,''),url);for(const [key,value] of original.searchParams)if(key!=='__path')url.searchParams.append(key,value)} if(url.pathname.startsWith('/api/')) await api(req,res,url); else await staticFile(req,res,url); }
   catch(error) { console.error(error); json(res,500,{error:'Server error'}); }
 }
 
