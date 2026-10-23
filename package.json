@@ -3,6 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "type": "module",
+  "dependencies": { "@neondatabase/serverless": "^1.0.2" },
   "scripts": {
     "mirror": "node tools/mirror.mjs",
     "start": "node --env-file-if-exists=.env --env-file-if-exists=.env.local server.mjs"
