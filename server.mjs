@@ -87,6 +87,21 @@ async function api(req,res,url) {
       const item=await one(`INSERT INTO traffic_spend(spend_date,amount,source,notes) VALUES($1,$2,$3,$4) RETURNING id,spend_date,amount,source,notes,created_at`,[spendDate,amount,clean(input.source).slice(0,120),clean(input.notes).slice(0,500)]);
       return json(res,201,{ok:true,item});
     }
+    const trafficSpendMatch=url.pathname.match(/^\/api\/admin\/traffic-spend\/(\d+)$/);
+    if(trafficSpendMatch&&req.method==='PUT'){
+      const id=Number(trafficSpendMatch[1]),input=await body(req),spendDate=String(input.spend_date||'').trim(),amount=Math.round(Number(input.amount)*100)/100;
+      if(!Number.isSafeInteger(id)||id<1)return json(res,400,{error:'Invalid traffic spend entry'});
+      if(!/^\d{4}-\d{2}-\d{2}$/.test(spendDate)||Number.isNaN(Date.parse(`${spendDate}T00:00:00Z`)))return json(res,400,{error:'Choose a valid spend date'});
+      if(!Number.isFinite(amount)||amount<=0)return json(res,400,{error:'Enter a traffic spend greater than zero'});
+      const item=await one(`UPDATE traffic_spend SET spend_date=$1,amount=$2,source=$3,notes=$4 WHERE id=$5 RETURNING id,spend_date,amount,source,notes,created_at`,[spendDate,amount,String(input.source||'').trim().slice(0,120),String(input.notes||'').trim().slice(0,500),id]);
+      if(!item)return json(res,404,{error:'Traffic spend entry not found'});
+      return json(res,200,{ok:true,item});
+    }
+    if(trafficSpendMatch&&req.method==='DELETE'){
+      const id=Number(trafficSpendMatch[1]);if(!Number.isSafeInteger(id)||id<1)return json(res,400,{error:'Invalid traffic spend entry'});
+      const item=await one('DELETE FROM traffic_spend WHERE id=$1 RETURNING id',[id]);if(!item)return json(res,404,{error:'Traffic spend entry not found'});
+      return json(res,200,{ok:true,id});
+    }
     if(req.method==='POST'&&url.pathname==='/api/admin/leads'){const input=await body(req),result=await upsertLead({...input,source:'admin'});await addEvent(result.lead.id,'opt_in',{metadata:{source:'admin'}});return json(res,201,{ok:true,id:Number(result.lead.id)})}
     if(req.method==='POST'&&url.pathname==='/api/admin/automations'){const input=await body(req);if(!['email','sms'].includes(input.channel))return json(res,400,{error:'Invalid channel'});await run(`INSERT INTO automations(name,channel,delay_minutes,subject,message,enabled,created_at,updated_at) VALUES($1,$2,$3,$4,$5,$6,NOW(),NOW())`,[clean(input.name),input.channel,Number(input.delay_minutes)||0,clean(input.subject),clean(input.message),Boolean(input.enabled)]);return json(res,201,{ok:true})}
     if(req.method==='POST'&&url.pathname==='/api/admin/refunds'){
