@@ -11,8 +11,11 @@
       if (existing) {
         const thanks = existing.querySelector('.thanks');
         const schedule = existing.querySelector('.schedule');
-        if (thanks) thanks.textContent = 'Thanks for purchasing CashTap AI';
-        if (schedule) schedule.href = 'https://cal.com/support-staff-wznd51/cashtap-ai-onboarding';
+        if (thanks && thanks.textContent !== 'Thanks for purchasing CashTap AI') {
+          thanks.textContent = 'Thanks for purchasing CashTap AI';
+        }
+        const bookingUrl = 'https://cal.com/support-staff-wznd51/cashtap-ai-onboarding';
+        if (schedule && schedule.href !== bookingUrl) schedule.href = bookingUrl;
         return;
       }
       const callout = document.createElement('section');
