@@ -14,13 +14,13 @@
         if (thanks && thanks.textContent !== 'Thanks for purchasing CashTap AI') {
           thanks.textContent = 'Thanks for purchasing CashTap AI';
         }
-        const bookingUrl = 'https://cal.com/support-staff-wznd51/cashtap-ai-onboarding';
+        const bookingUrl = 'https://cal.com/jon19/cashtap-ai-onboarding';
         if (schedule && schedule.href !== bookingUrl) schedule.href = bookingUrl;
         return;
       }
       const callout = document.createElement('section');
       callout.className = 'wc-call-now';
-      callout.innerHTML = '<div><h1>Congratulations</h1><p class="thanks">Thanks for purchasing CashTap AI</p><strong>YOUR ORDER IS COMPLETE</strong><h2>Step 1: Call Our Office Now To Get Started</h2><a class="phone" href="tel:+18282571162">(828) 257-1162</a><p>Tap the number or call now so our team can help you get started.</p><div class="or">— OR —</div><a class="schedule" href="https://cal.com/support-staff-wznd51/cashtap-ai-onboarding" target="_blank" rel="noreferrer noopener">Schedule Your Onboarding Call</a></div>';
+      callout.innerHTML = '<div><h1>Congratulations</h1><p class="thanks">Thanks for purchasing CashTap AI</p><strong>YOUR ORDER IS COMPLETE</strong><h2>Step 1: Call Our Office Now To Get Started</h2><a class="phone" href="tel:+18282571162">(828) 257-1162</a><p>Tap the number or call now so our team can help you get started.</p><div class="or">— OR —</div><a class="schedule" href="https://cal.com/jon19/cashtap-ai-onboarding" target="_blank" rel="noreferrer noopener">Schedule Your Onboarding Call</a></div>';
       document.body.prepend(callout);
     };
     if (!document.getElementById('wc-call-now-style')) {
