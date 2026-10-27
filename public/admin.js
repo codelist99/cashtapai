@@ -159,6 +159,14 @@ function renderOverview() {
       "Views per visitor",
       s.visitors ? (s.views / s.visitors).toFixed(2) : "0",
     );
+  $("#webinar-engagement").innerHTML =
+    metric("Total button clicks", integer(s.step2_webinar_clicks)) +
+    metric("Unique clickers", integer(s.step2_webinar_clickers)) +
+    metric("Thank-you visitors", integer(s.thankyou_visitors)) +
+    metric(
+      "Click-through rate",
+      `${pct(s.step2_webinar_clickers, s.thankyou_visitors)}%`,
+    );
   renderTrend();
 }
 function renderTrend() {
