@@ -164,6 +164,10 @@ async function api(req,res,url) {
 const types={'.html':'text/html; charset=utf-8','.css':'text/css; charset=utf-8','.js':'text/javascript; charset=utf-8','.png':'image/png','.jpg':'image/jpeg','.jpeg':'image/jpeg','.webp':'image/webp','.svg':'image/svg+xml'};
 async function staticFile(req,res,url) {
   let rel=decodeURIComponent(url.pathname);
+  if(rel==='/thankyou'||rel==='/thankyou/'){
+    res.writeHead(307,{'location':`/thankyou-e${url.search}`,'cache-control':'no-store'});
+    return res.end();
+  }
   if(rel==='/admin'||rel==='/admin/') rel=adminOk(req)?'/public/admin.html':'/public/admin-login.html';
   if(rel==='/') rel='/fe-e/index.html';
   else if(rel==='/checkout'||rel==='/checkout/') rel='/public/checkout.html';
