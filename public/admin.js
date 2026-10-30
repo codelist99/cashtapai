@@ -74,7 +74,7 @@ function renderOverview() {
     impressions = Number(s.ad_impressions || 0),
     cpl = s.leads ? spend / s.leads : null,
     cpa = s.buyers ? spend / s.buyers : null,
-    ctr = impressions ? pct(clicks, impressions) : null,
+    chargebackRatio = s.approvals ? pct(s.chargebacks_count, s.approvals) : 0,
     conversionBase = clicks || s.visitors,
     conversionLabel = clicks ? "click" : "visitor",
     cvr = conversionBase ? pct(s.buyers, conversionBase) : 0,
@@ -133,7 +133,7 @@ function renderOverview() {
     kpi("CPL", cpl === null ? "—" : money(cpl), "Cost per captured lead"),
     kpi("CPA", cpa === null ? "—" : money(cpa), "Cost per buyer"),
     kpi("Clicks", integer(clicks), `${integer(impressions)} impressions`),
-    kpi("CTR", ctr === null ? "—" : `${ctr}%`, "Clicks / impressions"),
+    kpi("Chargeback ratio", `${chargebackRatio}%`, `${integer(s.chargebacks_count)} cases / ${integer(s.approvals)} approved sales`),
     kpi("CVR", `${cvr}%`, `Buyer / ${conversionLabel} conversion`),
     kpi(
       "ROAS",
