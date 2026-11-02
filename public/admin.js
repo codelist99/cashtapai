@@ -26,19 +26,13 @@ let report,
   pages = { orders: 1, leads: 1, sales: 1 },
   page = { orders: 1, leads: 1, sales: 1 };
 function range() {
-  const end = new Date(),
-    p = $("#preset").value;
-  if (p === "custom") {
-    const start = new Date($("#start").value),
-      finish = new Date($("#end").value);
-    if (Number.isNaN(start.valueOf()) || Number.isNaN(finish.valueOf()))
-      throw Error("Choose a valid custom date range.");
-    return { start: start.toISOString(), end: finish.toISOString() };
-  }
-  return {
-    start: new Date(end - Number(p) * 3600000).toISOString(),
-    end: end.toISOString(),
-  };
+  const now = new Date(), p = $("#preset").value;
+  if (p === "total") return { start: new Date(0).toISOString(), end: now.toISOString() };
+  const value = p.startsWith("month:") ? p.slice(6) : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  if (!/^\d{4}-\d{2}$/.test(value)) throw Error("Choose a valid month.");
+  const [year, month] = value.split("-").map(Number), start = new Date(year, month - 1, 1), next = new Date(year, month, 1);
+  if (Number.isNaN(start.valueOf())) throw Error("Choose a valid month.");
+  return { start: start.toISOString(), end: (p === "current" ? now : next).toISOString() };
 }
 async function api(url, options = {}) {
   const r = await fetch(url, {
@@ -572,7 +566,7 @@ $("#sales-table").onclick = async (e) => {
   }
 };
 async function loadProfitLogistics() {
-  const d = await api("/api/admin/traffic-spend");
+  const d = await api(`/api/admin/traffic-spend?${new URLSearchParams(range())}`);
   spendItems = d.items || [];
   $("#profit-revenue").textContent = money(d.grossRevenue);
   $("#profit-refunds").textContent = money(d.refunds);
@@ -665,11 +659,8 @@ $("#tabs").onclick = (e) => {
   history.replaceState({}, "", `#${b.dataset.tab}`);
 };
 $("#preset").onchange = () => {
-  $("#custom").classList.toggle("hidden", $("#preset").value !== "custom");
-  if ($("#preset").value !== "custom") {
-    page.orders = 1;
-    loadAll();
-  }
+  page.orders = 1;
+  loadAll();
 };
 $("#refresh").onclick = loadAll;
 for (const t of ["orders", "leads", "sales"]) {
@@ -811,11 +802,16 @@ $("#traffic-spend-form").onsubmit = async (e) => {
   }
 };
 const now = new Date(),
-  before = new Date(now - 86400000),
   local = (d) =>
     new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-$("#start").value = local(before);
-$("#end").value = local(now);
+const monthName = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" });
+$("#preset").options[0].textContent = `Current month — ${monthName.format(now)}`;
+for (let offset = 1; offset < 24; offset++) {
+  const d = new Date(now.getFullYear(), now.getMonth() - offset, 1), option = document.createElement("option");
+  option.value = `month:${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  option.textContent = monthName.format(d);
+  $("#preset").insertBefore(option, $("#preset").querySelector('[value="total"]'));
+}
 $("#traffic-spend-form").elements.spend_date.value = local(now).slice(0, 10);
 setInterval(
   () => ($("#clock").textContent = new Date().toLocaleTimeString()),

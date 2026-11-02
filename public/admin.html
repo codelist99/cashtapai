@@ -31,19 +31,11 @@
     </nav>
     <section class="controlbar">
       <div>
-        <label>Reporting window</label
+        <label>Reporting month</label
         ><select id="preset">
-          <option value="12">Last 12 hours</option>
-          <option value="24" selected>Last 24 hours</option>
-          <option value="72">Last 3 days</option>
-          <option value="168">Last 7 days</option>
-          <option value="720">Last 30 days</option>
-          <option value="custom">Custom range</option>
+          <option value="current" selected>Current month</option>
+          <option value="total">All time</option>
         </select>
-      </div>
-      <div class="custom hidden" id="custom">
-        <label>Start<input id="start" type="datetime-local" /></label
-        ><label>End<input id="end" type="datetime-local" /></label>
       </div>
       <button class="refresh" id="refresh">↻ Refresh data</button
       ><span class="updated" id="updated">Loading live data…</span>
