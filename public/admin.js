@@ -19,6 +19,7 @@ const $ = (s) => document.querySelector(s),
   integer = (v) => new Intl.NumberFormat("en-US").format(Number(v || 0)),
   pct = (a, b) => (b ? +((a / b) * 100).toFixed(1) : 0),
   date = (v) => (v ? new Date(v).toLocaleString() : "—"),
+  duration = (seconds) => {const total=Math.max(0,Number(seconds)||0),hours=Math.floor(total/3600),minutes=Math.floor(total%3600/60),secs=Math.floor(total%60);return hours?`${hours}h ${minutes}m`:minutes?`${minutes}m ${secs}s`:`${secs}s`},
   empty = (n, t = "No records in this view") =>
     `<tr><td class="empty" colspan="${n}">${t}</td></tr>`;
 let report,
@@ -422,6 +423,7 @@ async function loadSales() {
         })
         .join("")
     : empty(9);
+  $("#sales-table").querySelectorAll("tr").forEach((row,index)=>{const buyer=d.items[index],name=row.querySelector("td b");if(!buyer||!name)return;const lead=Number(buyer.id),button=document.createElement("button");button.className="buyer-name-button";button.dataset.lead=String(lead);button.setAttribute("aria-expanded","false");button.innerHTML=`<span>▸</span> ${name.innerHTML}`;name.replaceWith(button);row.insertAdjacentHTML("afterend",`<tr class="buyer-member-row hidden" id="member-detail-${lead}"><td colspan="9"><div class="buyer-member-detail">Loading member activity…</div></td></tr>`)});
   pager("sales", d.pagination, "sold leads");
 }
 async function processRefundButton(button, order) {
@@ -465,6 +467,8 @@ async function processRefundButton(button, order) {
   }
 }
 $("#sales-table").onclick = async (e) => {
+  const nameButton=e.target.closest('.buyer-name-button');
+  if(nameButton){const lead=Number(nameButton.dataset.lead),row=$(`#member-detail-${lead}`),opening=row.classList.contains('hidden');row.classList.toggle('hidden',!opening);nameButton.setAttribute('aria-expanded',String(opening));nameButton.querySelector('span').textContent=opening?'▾':'▸';if(opening&&!row.dataset.loaded){const box=row.querySelector('.buyer-member-detail');try{const data=await api(`/api/admin/buyer-member-stats?leadId=${encodeURIComponent(lead)}`);if(!data.created){box.innerHTML='<div class="member-empty"><b>Member account not created</b><span>This buyer has not activated their CashTap portal login yet.</span></div>'}else{const m=data.member,recent=data.sessions.map((s,i)=>`<tr><td>${i+1}</td><td>${date(s.started_at)}</td><td>${date(s.last_activity_at)}</td><td>${s.ended_at?date(s.ended_at):(m.online&&i===0?'<span class="badge paid">Online now</span>':'Open')}</td><td>${duration(s.duration_seconds)}</td></tr>`).join('');box.innerHTML=`<div class="member-stat-grid"><div><span>Account</span><b>Created</b><small>${date(m.createdAt)}</small></div><div><span>Portal logins</span><b>${integer(m.loginCount)}</b><small>Tracked sessions</small></div><div><span>Total time</span><b>${duration(m.totalSeconds)}</b><small>Active portal time</small></div><div><span>Last activity</span><b>${m.online?'Online now':date(m.lastActivityAt)}</b><small>Last login: ${date(m.lastLoginAt)}</small></div></div><div class="member-session-history"><h3>Recent portal sessions</h3><table><thead><tr><th>#</th><th>Signed in</th><th>Last activity</th><th>Ended</th><th>Active time</th></tr></thead><tbody>${recent||'<tr><td colspan="5">No tracked sessions yet</td></tr>'}</tbody></table></div>`}row.dataset.loaded='true'}catch(error){box.textContent=error.message}}return}
   const button = e.target.closest(".buyer-refund-button");
   if (!button) return;
   button.disabled = true;
