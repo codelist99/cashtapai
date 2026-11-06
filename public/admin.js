@@ -594,7 +594,7 @@ async function loadProfitLogistics() {
     ? d.refundItems
         .map(
           (x) =>
-            `<tr><td>${date(x.updated_at)}</td><td>${esc([x.first_name, x.last_name].filter(Boolean).join(" ") || x.email || "Unknown")}</td><td>${esc(x.product_name || "—")}</td><td>${esc(x.action || "refund")}</td><td><b>${money(x.amount)}</b></td></tr>`,
+            `<tr><td>${date(x.created_at)}</td><td>${esc([x.first_name, x.last_name].filter(Boolean).join(" ") || x.email || "Unknown")}</td><td>${esc(x.product_name || "—")}</td><td>${esc(x.action || "refund")}</td><td><b>${money(x.amount)}</b></td></tr>`,
         )
         .join("")
     : empty(5, "No refunds recorded");
