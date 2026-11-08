@@ -29,6 +29,20 @@ let report,
 function range() {
   const now = new Date(), p = $("#preset").value;
   if (p === "total") return { start: new Date(0).toISOString(), end: now.toISOString() };
+  if (p === "today" || p === "yesterday" || p === "day") {
+    let selected;
+    if (p === "today") selected = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    else if (p === "yesterday") selected = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+    else {
+      const value = $("#report-day").value;
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw Error("Choose a valid day.");
+      const [year, month, day] = value.split("-").map(Number);
+      selected = new Date(year, month - 1, day);
+      if (selected.getFullYear() !== year || selected.getMonth() !== month - 1 || selected.getDate() !== day) throw Error("Choose a valid day.");
+    }
+    const next = new Date(selected.getFullYear(), selected.getMonth(), selected.getDate() + 1);
+    return { start: selected.toISOString(), end: (p === "today" || (p === "day" && selected <= now && next > now) ? now : next).toISOString() };
+  }
   const value = p.startsWith("month:") ? p.slice(6) : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   if (!/^\d{4}-\d{2}$/.test(value)) throw Error("Choose a valid month.");
   const [year, month] = value.split("-").map(Number), start = new Date(year, month - 1, 1), next = new Date(year, month, 1);
@@ -663,6 +677,13 @@ $("#tabs").onclick = (e) => {
   history.replaceState({}, "", `#${b.dataset.tab}`);
 };
 $("#preset").onchange = () => {
+  const choosingDay = $("#preset").value === "day";
+  $("#report-day").hidden = !choosingDay;
+  if (choosingDay && !$("#report-day").value) $("#report-day").value = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  page.orders = 1;
+  loadAll();
+};
+$("#report-day").onchange = () => {
   page.orders = 1;
   loadAll();
 };
@@ -809,7 +830,7 @@ const now = new Date(),
   local = (d) =>
     new Date(d - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
 const monthName = new Intl.DateTimeFormat("en-US", { month: "long", year: "numeric" });
-$("#preset").options[0].textContent = `Current month — ${monthName.format(now)}`;
+$("#preset").querySelector('[value="current"]').textContent = `Current month — ${monthName.format(now)}`;
 for (let offset = 1; offset < 24; offset++) {
   const d = new Date(now.getFullYear(), now.getMonth() - offset, 1), option = document.createElement("option");
   option.value = `month:${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
