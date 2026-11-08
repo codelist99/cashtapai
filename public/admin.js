@@ -29,19 +29,22 @@ let report,
 function range() {
   const now = new Date(), p = $("#preset").value;
   if (p === "total") return { start: new Date(0).toISOString(), end: now.toISOString() };
-  if (p === "today" || p === "yesterday" || p === "day") {
-    let selected;
-    if (p === "today") selected = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    else if (p === "yesterday") selected = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-    else {
-      const value = $("#report-day").value;
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw Error("Choose a valid day.");
-      const [year, month, day] = value.split("-").map(Number);
-      selected = new Date(year, month - 1, day);
-      if (selected.getFullYear() !== year || selected.getMonth() !== month - 1 || selected.getDate() !== day) throw Error("Choose a valid day.");
-    }
+  if (p === "today" || p === "yesterday") {
+    const selected = p === "today" ? new Date(now.getFullYear(), now.getMonth(), now.getDate()) : new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
     const next = new Date(selected.getFullYear(), selected.getMonth(), selected.getDate() + 1);
-    return { start: selected.toISOString(), end: (p === "today" || (p === "day" && selected <= now && next > now) ? now : next).toISOString() };
+    return { start: selected.toISOString(), end: (p === "today" ? now : next).toISOString() };
+  }
+  if (p === "range") {
+    const parseDay = (value) => {
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) throw Error("Choose a valid start and end date.");
+      const [year, month, day] = value.split("-").map(Number), result = new Date(year, month - 1, day);
+      if (result.getFullYear() !== year || result.getMonth() !== month - 1 || result.getDate() !== day) throw Error("Choose a valid start and end date.");
+      return result;
+    };
+    const start = parseDay($("#report-start").value), through = parseDay($("#report-end").value);
+    if (through < start) throw Error("The end date must be on or after the start date.");
+    const end = new Date(through.getFullYear(), through.getMonth(), through.getDate() + 1);
+    return { start: start.toISOString(), end: end.toISOString() };
   }
   const value = p.startsWith("month:") ? p.slice(6) : `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
   if (!/^\d{4}-\d{2}$/.test(value)) throw Error("Choose a valid month.");
@@ -677,16 +680,19 @@ $("#tabs").onclick = (e) => {
   history.replaceState({}, "", `#${b.dataset.tab}`);
 };
 $("#preset").onchange = () => {
-  const choosingDay = $("#preset").value === "day";
-  $("#report-day").hidden = !choosingDay;
-  if (choosingDay && !$("#report-day").value) $("#report-day").value = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  const choosingRange = $("#preset").value === "range", today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  $("#report-range").classList.toggle("hidden", !choosingRange);
+  if (choosingRange && !$("#report-start").value) $("#report-start").value = today;
+  if (choosingRange && !$("#report-end").value) $("#report-end").value = today;
   page.orders = 1;
   loadAll();
 };
-$("#report-day").onchange = () => {
+const reloadCustomRange = () => {
   page.orders = 1;
   loadAll();
 };
+$("#report-start").onchange = reloadCustomRange;
+$("#report-end").onchange = reloadCustomRange;
 $("#refresh").onclick = loadAll;
 for (const t of ["orders", "leads", "sales"]) {
   $(`#${t}-prev`).onclick = () => {
