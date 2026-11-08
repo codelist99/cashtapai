@@ -51,7 +51,7 @@ async function syncMxChargebacks(){
         [Number(record.amount||0),record.status||'open',record.processor_case_id,record.transaction_id||'',record.reason||'MX Merchant chargeback',record.occurred_at,record.processor_type||'mx_merchant']);
       existing?updated++:imported++;
     }
-    const checkedAt=new Date().toISOString(),message=`MX Merchant synchronized: ${mx.count} chargebacks totaling $${Number(mx.total||0).toFixed(2)}; ${imported} imported, ${updated} updated`;
+    const checkedAt=new Date().toISOString(),shape=(mx.diagnostics||[]).map(item=>`${item.merchantId}:${item.keys.join('|')}[${JSON.stringify(item.arrayCounts)}]`).join(', '),message=`MX Merchant synchronized: ${mx.count} chargebacks totaling $${Number(mx.total||0).toFixed(2)}; ${imported} imported, ${updated} updated; responses ${shape||'none'}`;
     await run(`INSERT INTO sync_state(sync_key,last_success_at,status,details,updated_at) VALUES('mx_chargebacks',$1,'ok',$2,$1) ON CONFLICT(sync_key) DO UPDATE SET last_success_at=excluded.last_success_at,status=excluded.status,details=excluded.details,updated_at=excluded.updated_at`,[checkedAt,message]);
     mxSyncAt=Date.now();mxSyncStatus={ok:true,message,checkedAt};
   })().catch(async error=>{mxSyncStatus={ok:false,message:error.message,checkedAt:new Date().toISOString()};try{await run(`INSERT INTO sync_state(sync_key,status,details,updated_at) VALUES('mx_chargebacks','error',$1,NOW()) ON CONFLICT(sync_key) DO UPDATE SET status=excluded.status,details=excluded.details,updated_at=excluded.updated_at`,[error.message])}catch{}console.error('MX Merchant chargeback sync failed',error.message)}).finally(()=>{mxSyncPromise=null});
