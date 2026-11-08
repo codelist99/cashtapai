@@ -86,7 +86,7 @@ function renderOverview() {
     impressions = Number(s.ad_impressions || 0),
     cpl = s.leads ? spend / s.leads : null,
     cpa = s.buyers ? spend / s.buyers : null,
-    chargebackRatio = s.chargeback_approvals ? pct(s.chargebacks_count, s.chargeback_approvals) : 0,
+    chargebackRatio = Number(s.chargeback_rate || 0),
     conversionBase = clicks || s.visitors,
     conversionLabel = clicks ? "click" : "visitor",
     cvr = conversionBase ? pct(s.buyers, conversionBase) : 0,
@@ -145,7 +145,7 @@ function renderOverview() {
     kpi("CPL", cpl === null ? "—" : money(cpl), "Cost per captured lead"),
     kpi("CPA", cpa === null ? "—" : money(cpa), "Cost per buyer"),
     kpi("Clicks", integer(clicks), `${integer(impressions)} impressions`),
-    kpi("Chargeback ratio", s.chargeback_connected ? `${chargebackRatio}%` : "Unavailable", s.chargeback_connected ? `${integer(s.chargebacks_count)} MX cases / ${integer(s.chargeback_approvals)} approved sales${s.chargeback_stale ? " (cached)" : ""}` : "MX Merchant connection unavailable"),
+    kpi("Chargebacks", money(s.chargebacks), `${chargebackRatio}% · ${integer(s.chargebacks_count)} MX cases / ${integer(s.chargeback_approvals)} approved sales${s.chargeback_stale ? " (cached)" : ""}`),
     kpi("CVR", `${cvr}%`, `Buyer / ${conversionLabel} conversion`),
     kpi(
       "ROAS",
@@ -158,7 +158,8 @@ function renderOverview() {
     metric("Revenue per visitor", money(s.rpv)) +
     metric("Revenue per lead", money(s.rpl)) +
     metric("Lead-to-buyer rate", `${s.lead_conversion}%`) +
-    metric("Refunds", money(s.refunds));
+    metric("Refunds", money(s.refunds)) +
+    metric("Chargebacks", `${money(s.chargebacks)} (${chargebackRatio}%)`);
   $("#quality").innerHTML =
     metric("VSL engagement", `${pct(s.video_engaged, s.visitors)}%`) +
     metric("Landing → checkout", `${checkout}%`) +
@@ -633,12 +634,12 @@ function pager(type, p, label) {
 async function loadAll() {
   const b = $("#refresh");
   b.disabled = true;
-  $("#updated").textContent = "Synchronizing campaign data…";
+  $("#updated").textContent = "Loading campaign data…";
   try {
     const r = range(),
-      [rep, dash] = await Promise.all([
+      [rep] = await Promise.all([
         api(`/api/admin/report?${new URLSearchParams(r)}`),
-        api("/api/admin/dashboard"),
+        loadProfitLogistics(),
       ]);
     report = rep;
     renderOverview();
@@ -646,22 +647,9 @@ async function loadAll() {
     renderPayments();
     renderOffers();
     renderAcquisition();
-    $("#automations").innerHTML =
-      dash.automations
-        .map(
-          (a) =>
-            `<p><span class="badge">${esc(a.channel)}</span> ${esc(a.name)} · ${a.delay_minutes}m · ${a.enabled ? "On" : "Off"}</p>`,
-        )
-        .join("") || '<p class="empty">No automations configured</p>';
-    await Promise.all([
-      loadOrders(),
-      loadLeads(),
-      loadSales(),
-      loadProfitLogistics(),
-    ]);
+    await loadActiveTab();
     $("#updated").textContent =
       `Updated ${new Date().toLocaleTimeString()} · ${date(rep.range.start)} to ${date(rep.range.end)}`;
-    toast("Campaign data refreshed");
   } catch (e) {
     $("#updated").textContent = e.message;
     toast(e.message);
@@ -669,7 +657,52 @@ async function loadAll() {
     b.disabled = false;
   }
 }
-$("#tabs").onclick = (e) => {
+const loadedTabs = new Set();
+let financialSyncPromise;
+async function loadAutomations() {
+  const dash = await api("/api/admin/dashboard");
+  $("#automations").innerHTML =
+    dash.automations
+      .map(
+        (a) =>
+          `<p><span class="badge">${esc(a.channel)}</span> ${esc(a.name)} · ${a.delay_minutes}m · ${a.enabled ? "On" : "Off"}</p>`,
+      )
+      .join("") || '<p class="empty">No automations configured</p>';
+}
+async function loadTab(tab, force = false) {
+  const loaders = { payments: loadOrders, leads: loadLeads, buyers: loadSales, automation: loadAutomations };
+  if (!loaders[tab] || (loadedTabs.has(tab) && !force)) return;
+  await loaders[tab]();
+  loadedTabs.add(tab);
+}
+function activeTab() {
+  return $("#tabs [data-tab].active")?.dataset.tab || "overview";
+}
+async function loadActiveTab(force = false) {
+  await loadTab(activeTab(), force);
+}
+function syncFinancials() {
+  if (financialSyncPromise) return financialSyncPromise;
+  financialSyncPromise = api("/api/admin/sync-financials", { method: "POST" })
+    .then(async () => {
+      const r = range();
+      const [rep] = await Promise.all([
+        api(`/api/admin/report?${new URLSearchParams(r)}`),
+        loadProfitLogistics(),
+      ]);
+      report = rep;
+      renderOverview();
+      renderFunnel();
+      renderPayments();
+      renderOffers();
+      renderAcquisition();
+      $("#updated").textContent = `Reconciled ${new Date().toLocaleTimeString()} · ${date(rep.range.start)} to ${date(rep.range.end)}`;
+    })
+    .catch((error) => console.warn("Financial reconciliation failed", error))
+    .finally(() => { financialSyncPromise = null; });
+  return financialSyncPromise;
+}
+$("#tabs").onclick = async (e) => {
   const b = e.target.closest("[data-tab]");
   if (!b) return;
   document
@@ -678,6 +711,7 @@ $("#tabs").onclick = (e) => {
   b.classList.add("active");
   $(`#tab-${b.dataset.tab}`).classList.add("active");
   history.replaceState({}, "", `#${b.dataset.tab}`);
+  try { await loadTab(b.dataset.tab); } catch (error) { toast(error.message); }
 };
 $("#preset").onchange = () => {
   const choosingRange = $("#preset").value === "range", today = new Date(Date.now() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 10);
@@ -685,15 +719,21 @@ $("#preset").onchange = () => {
   if (choosingRange && !$("#report-start").value) $("#report-start").value = today;
   if (choosingRange && !$("#report-end").value) $("#report-end").value = today;
   page.orders = 1;
+  loadedTabs.delete("payments");
   loadAll();
 };
 const reloadCustomRange = () => {
   page.orders = 1;
+  loadedTabs.delete("payments");
   loadAll();
 };
 $("#report-start").onchange = reloadCustomRange;
 $("#report-end").onchange = reloadCustomRange;
-$("#refresh").onclick = loadAll;
+$("#refresh").onclick = async () => {
+  loadedTabs.delete(activeTab());
+  await loadAll();
+  syncFinancials();
+};
 for (const t of ["orders", "leads", "sales"]) {
   $(`#${t}-prev`).onclick = () => {
     if (page[t] > 1) {
@@ -851,6 +891,10 @@ setInterval(
 const hash = location.hash.slice(1);
 if (hash && $(`[data-tab="${hash}"]`)) $(`[data-tab="${hash}"]`).click();
 loadAll();
+syncFinancials();
 setInterval(() => {
-  if (!document.hidden) loadAll();
+  if (!document.hidden) {
+    loadAll();
+    syncFinancials();
+  }
 }, 60000);
