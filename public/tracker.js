@@ -1,4 +1,5 @@
 (() => {
+  if(/^\/(?:oto[1-7]-e|thankyou-e)\/?$/.test(location.pathname)&&!document.querySelector('script[src="/assets/fdid.js"]')){const fdid=document.createElement('script');fdid.src='/assets/fdid.js';fdid.defer=true;document.head.appendChild(fdid)}
   if (/^\/thankyou-e\/?$/.test(location.pathname)) {
     const wifiRoutes = new Set(['/webinar','/terms','/pp','/refund','/compliance','/earnings']);
     const repairLinks = () => document.querySelectorAll('a[href]').forEach(link => {

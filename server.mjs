@@ -4,7 +4,8 @@ import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { chargeToken, chargeVault, refundTransaction, getNmiReturnTransactions } from './lib/nmi.mjs';
+import { refundTransaction, getNmiReturnTransactions } from './lib/nmi.mjs';
+import { chargeOpaque, chargeProfile, refundOrVoid } from './lib/authorize-net.mjs';
 import { upsertLead, addEvent, one, many, run } from './lib/database.mjs';
 import { getMxChargebacks } from './lib/mx-merchant.mjs';
 import { processDueMessages } from './lib/automation.mjs';
@@ -12,7 +13,7 @@ import { processDueMessages } from './lib/automation.mjs';
 const root = path.dirname(fileURLToPath(import.meta.url));
 const port = Number(process.env.PORT || 3000);
 const owner = 'e9cd97bc-7bc8-4a23-bb2f-224a56a84d6b';
-const secret = process.env.SESSION_SECRET || process.env.NMI_PRIVATE_KEY || 'configure-session-secret';
+const secret = process.env.SESSION_SECRET || process.env.AUTHORIZE_NET_TRANSACTION_KEY || process.env.NMI_PRIVATE_KEY || 'configure-session-secret';
 let refundSyncAt=0,refundSyncPromise,refundSyncStatus={ok:null,message:'Not checked'};
 let mxSyncAt=0,mxSyncPromise,mxSyncStatus={ok:null,message:'Not checked'};
 async function syncNmiRefunds(){
@@ -22,7 +23,7 @@ async function syncNmiRefunds(){
     let imported=0;
     const [state,first]=await Promise.all([one(`SELECT * FROM sync_state WHERE sync_key='nmi_refunds'`),one(`SELECT MIN(created_at) first_at FROM orders WHERE status='paid'`)]);
     if(!first?.first_at){refundSyncAt=Date.now();refundSyncStatus={ok:true,message:'No paid orders to reconcile',checkedAt:new Date().toISOString()};return}
-    const start=state?.last_success_at?new Date(new Date(state.last_success_at).getTime()-3*86400000):new Date(new Date(first.first_at).getTime()-86400000),returns=await getNmiReturnTransactions(start,new Date()),[orders,stored]=await Promise.all([many(`SELECT * FROM orders WHERE status='paid' AND transaction_id IS NOT NULL`),many(`SELECT gateway_transaction_id FROM refunds WHERE gateway_transaction_id IS NOT NULL`)]),orderByTransaction=new Map(orders.map(order=>[String(order.transaction_id),order])),storedIds=new Set(stored.map(item=>String(item.gateway_transaction_id)));
+    const start=state?.last_success_at?new Date(new Date(state.last_success_at).getTime()-3*86400000):new Date(new Date(first.first_at).getTime()-86400000),returns=await getNmiReturnTransactions(start,new Date()),[orders,stored]=await Promise.all([many(`SELECT * FROM orders WHERE status='paid' AND gateway='nmi' AND transaction_id IS NOT NULL`),many(`SELECT gateway_transaction_id FROM refunds WHERE gateway_transaction_id IS NOT NULL`)]),orderByTransaction=new Map(orders.map(order=>[String(order.transaction_id),order])),storedIds=new Set(stored.map(item=>String(item.gateway_transaction_id)));
     for(const refund of returns){
       if(storedIds.has(refund.transactionId))continue;
       const order=orderByTransaction.get(refund.originalTransactionId);if(!order||!refund.amount)continue;
@@ -153,7 +154,7 @@ async function api(req,res,url) {
     }
     if(req.method==='GET'&&url.pathname==='/api/admin/system-audit'){
       const identity=await one(`SELECT current_database() database,current_user db_user`),orderProducts=await many(`SELECT product_id,product_name,MIN(amount) min_amount,MAX(amount) max_amount,COUNT(*)::int records FROM orders GROUP BY 1,2 ORDER BY 1,2`),databaseFingerprint=crypto.createHash('sha256').update(process.env.DATABASE_URL||'missing').digest('hex').slice(0,16);
-      return json(res,200,{offer:'cashtap-ai',gateway:'nmi',database:{...identity,fingerprint:databaseFingerprint},catalog:products,orderProducts});
+      return json(res,200,{offer:'cashtap-ai',gateway:'authorize_net',legacyGateway:'nmi',database:{...identity,fingerprint:databaseFingerprint},catalog:products,orderProducts});
     }
     if(req.method==='GET'&&url.pathname==='/api/admin/orders'){const params=[r.start,r.end,q],where=`o.updated_at BETWEEN $1 AND $2 AND ($3='' OR CONCAT_WS(' ',l.first_name,l.last_name) ILIKE '%'||$3||'%' OR l.email ILIKE '%'||$3||'%' OR l.phone ILIKE '%'||$3||'%')`,total=Number((await one(`SELECT COUNT(*) total FROM orders o JOIN leads l ON l.id=o.lead_id WHERE ${where}`,params)).total),items=await many(`SELECT o.*,l.first_name,l.last_name,l.email,l.phone FROM orders o JOIN leads l ON l.id=o.lead_id WHERE ${where} ORDER BY o.updated_at DESC LIMIT $4 OFFSET $5`,[...params,limit,offset]);return json(res,200,{items,pagination:{page,pageSize:limit,total,pages:Math.max(1,Math.ceil(total/limit))},range:r})}
     const sold=`SELECT l.id,l.first_name,l.last_name,l.email,l.phone,COUNT(o.id)::int purchase_count,COUNT(o.id) FILTER(WHERE o.transaction_id IS NOT NULL AND o.amount>o.refunded_amount)::int refundable_count,COALESCE(SUM(GREATEST(0,o.amount-o.refunded_amount)) FILTER(WHERE o.transaction_id IS NOT NULL),0) refundable_amount,COALESCE(SUM(o.amount),0) gross_sales,STRING_AGG(o.product_name,', ' ORDER BY o.created_at) products,MIN(o.created_at) first_purchase_at,MAX(o.updated_at) last_purchase_at,COUNT(o.id) FILTER(WHERE o.refunded_amount>0)::int refund_count,COALESCE(SUM(o.refunded_amount),0) refund_amount,COALESCE(SUM(o.amount-o.refunded_amount),0) net_sales FROM leads l JOIN orders o ON o.lead_id=l.id AND o.status='paid' GROUP BY l.id`;
@@ -203,18 +204,19 @@ async function api(req,res,url) {
     if(req.method==='POST'&&url.pathname==='/api/admin/refunds'){
       const input=await body(req);if(!secureEqual(input.pin,'67'))return json(res,401,{error:'Incorrect confirmation PIN'});
       const orderId=Number(input.orderId);if(!Number.isSafeInteger(orderId)||orderId<1)return json(res,400,{error:'Invalid order'});
-      const current=await one(`SELECT * FROM orders WHERE id=$1 AND status='paid'`,[orderId]);if(!current?.transaction_id)return json(res,409,{error:'Only approved NMI transactions can be refunded'});
+      const current=await one(`SELECT * FROM orders WHERE id=$1 AND status='paid'`,[orderId]);if(!current?.transaction_id)return json(res,409,{error:'Only approved gateway transactions can be refunded'});
       const remaining=Number(current.amount)-Number(current.refunded_amount||0),requested=input.amount==null||input.amount===''?remaining:Number(input.amount),amount=Math.round(requested*100)/100;if(!Number.isFinite(amount)||amount<=0||amount>remaining)return json(res,400,{error:'Invalid refund amount'});
       const reserved=(await run(`UPDATE orders SET refunded_amount=refunded_amount+$1,refund_status='processing',refund_updated_at=NOW() WHERE id=$2 AND status='paid' AND refund_status<>'processing' AND amount-refunded_amount >= $1 RETURNING *`,[amount,orderId]))[0];if(!reserved)return json(res,409,{error:'Refund exceeds the remaining balance or another refund is processing'});
       let audit;try{audit=(await run(`INSERT INTO refunds(order_id,lead_id,amount,status,original_transaction_id,created_at,updated_at) VALUES($1,$2,$3,'processing',$4,NOW(),NOW()) RETURNING *`,[orderId,reserved.lead_id,amount,reserved.transaction_id]))[0]}catch(error){await run(`UPDATE orders SET refunded_amount=GREATEST(0,refunded_amount-$1),refund_status=CASE WHEN refunded_amount-$1<=0 THEN '' ELSE 'partially_refunded' END,refund_updated_at=NOW() WHERE id=$2`,[amount,orderId]);throw error}
-      let result;try{result=await refundTransaction({transactionId:reserved.transaction_id,amount})}catch(error){await run(`UPDATE refunds SET status='failed',response_message=$1,updated_at=NOW() WHERE id=$2`,[String(error.message).slice(0,500),audit.id]);await run(`UPDATE orders SET refunded_amount=GREATEST(0,refunded_amount-$1),refund_status=CASE WHEN refunded_amount-$1<=0 THEN '' ELSE 'partially_refunded' END,refund_updated_at=NOW() WHERE id=$2`,[amount,orderId]);return json(res,409,{error:error.message})}
-      try{await run(`UPDATE refunds SET status='succeeded',gateway_transaction_id=$1,response_message='Refunded successfully',updated_at=NOW() WHERE id=$2`,[result.transactionId,audit.id]);await run(`UPDATE orders SET refund_status=CASE WHEN refunded_amount>=amount THEN 'refunded' ELSE 'partially_refunded' END,refund_updated_at=NOW() WHERE id=$1`,[orderId]);await addEvent(reserved.lead_id,'refund',{value:amount,product_id:reserved.product_id,transaction_id:result.transactionId,metadata:{gateway:'nmi',order_id:orderId,original_transaction_id:reserved.transaction_id}})}catch(error){console.error('NMI refund succeeded but dashboard audit failed',error);return json(res,200,{ok:true,action:'refund',amount,transactionId:result.transactionId,warning:'NMI completed the refund, but dashboard synchronization requires review.'})}
-      return json(res,200,{ok:true,action:'refund',amount,transactionId:result.transactionId});
+      const gateway=reserved.gateway||'nmi';let result;try{result=gateway==='authorize_net'?await refundOrVoid({transactionId:reserved.transaction_id,amount,invoice:`CTA-R-${audit.id}`}):await refundTransaction({transactionId:reserved.transaction_id,amount})}catch(error){await run(`UPDATE refunds SET status='failed',response_message=$1,updated_at=NOW() WHERE id=$2`,[String(error.message).slice(0,500),audit.id]);await run(`UPDATE orders SET refunded_amount=GREATEST(0,refunded_amount-$1),refund_status=CASE WHEN refunded_amount-$1<=0 THEN '' ELSE 'partially_refunded' END,refund_updated_at=NOW() WHERE id=$2`,[amount,orderId]);return json(res,409,{error:error.message})}
+      const action=result.action||'refund';try{await run(`UPDATE refunds SET action=$1,status='succeeded',gateway_transaction_id=$2,response_message='Refunded successfully',updated_at=NOW() WHERE id=$3`,[action,result.transactionId,audit.id]);await run(`UPDATE orders SET refund_status=CASE WHEN refunded_amount>=amount THEN 'refunded' ELSE 'partially_refunded' END,refund_updated_at=NOW() WHERE id=$1`,[orderId]);await addEvent(reserved.lead_id,'refund',{value:amount,product_id:reserved.product_id,transaction_id:result.transactionId,metadata:{gateway,action,order_id:orderId,original_transaction_id:reserved.transaction_id}})}catch(error){console.error(`${gateway} refund succeeded but dashboard audit failed`,error);return json(res,200,{ok:true,action,amount,transactionId:result.transactionId,warning:'The gateway completed the refund, but dashboard synchronization requires review.'})}
+      return json(res,200,{ok:true,action,amount,transactionId:result.transactionId});
     }
     if(req.method==='GET'&&(url.pathname==='/api/admin/leads/export'||url.pathname==='/api/admin/sales/export')){const rows=url.pathname.includes('sales')?await many(sold):await many('SELECT * FROM leads ORDER BY created_at DESC'),keys=rows[0]?Object.keys(rows[0]):[],csv='\uFEFF'+[keys.map(csvCell).join(','),...rows.map(x=>keys.map(k=>csvCell(x[k])).join(','))].join('\r\n');res.writeHead(200,{'content-type':'text/csv','content-disposition':'attachment; filename="cashtap-export.csv"'});return res.end(csv)}
     return json(res,404,{error:'Not found'});
   }
-  if(req.method==='GET' && url.pathname==='/api/checkout/config') return json(res,200,{gateway:'nmi',publicKey:process.env.NMI_PUBLIC_KEY||'',product:{name:products.front.name,amount:products.front.amount}});
+  if(req.method==='GET'&&url.pathname==='/api/fdid/config')return json(res,200,{clientId:String(process.env.FD_CLIENT_ID||'').trim()});
+  if(req.method==='GET' && url.pathname==='/api/checkout/config') return json(res,200,{gateway:'authorize_net',apiLoginId:process.env.AUTHORIZE_NET_API_LOGIN_ID||'',publicClientKey:process.env.AUTHORIZE_NET_PUBLIC_CLIENT_KEY||'',environment:process.env.AUTHORIZE_NET_ENV||'production',product:{name:products.front.name,amount:products.front.amount}});
   if(req.method==='GET' && url.pathname.startsWith('/api/player/')) {
     const player=url.pathname.match(/^\/api\/player\/([a-z0-9]+)\.js$/)?.[1];
     if(!player) return json(res,404,{error:'Not found'});
@@ -226,14 +228,14 @@ async function api(req,res,url) {
   if(req.method==='POST' && url.pathname==='/api/checkout') {
     const input=await body(req);
     if(!input.consent) return json(res,400,{error:'Payment authorization is required'});
-    if(!input.paymentToken) return json(res,400,{error:'Secure card token is required'});
+    if(!input.opaqueData?.dataDescriptor||!input.opaqueData?.dataValue) return json(res,400,{error:'Secure card token is required'});
     const customer={first_name:clean(input.first_name),last_name:clean(input.last_name),email:clean(input.email),phone:clean(input.phone),address:clean(input.address),city:clean(input.city),state:clean(input.state),zip:clean(input.zip)};
     if(!customer.first_name||!customer.last_name||!customer.email||!customer.phone||!customer.address||!customer.city||!customer.state||!customer.zip) return json(res,400,{error:'Complete all contact and billing fields'});
-    const {lead}=await upsertLead({...customer,source:'checkout',landing_page:'/checkout'});let order=(await run(`INSERT INTO orders(lead_id,product_id,product_name,amount,status,created_at,updated_at) VALUES($1,'front',$2,$3,'pending',NOW(),NOW()) ON CONFLICT(lead_id,product_id) DO UPDATE SET status='pending',updated_at=NOW() RETURNING *`,[lead.id,products.front.name,products.front.amount]))[0];
+    const {lead}=await upsertLead({...customer,source:'checkout',landing_page:'/checkout'});let order=(await run(`INSERT INTO orders(lead_id,product_id,product_name,amount,status,gateway,created_at,updated_at) VALUES($1,'front',$2,$3,'pending','authorize_net',NOW(),NOW()) ON CONFLICT(lead_id,product_id) DO UPDATE SET status='pending',gateway='authorize_net',updated_at=NOW() RETURNING *`,[lead.id,products.front.name,products.front.amount]))[0];
     try {
-      const payment=await chargeToken({product:products.front,paymentToken:input.paymentToken,customer,invoice:invoice('front')});
-      await run(`UPDATE orders SET status='paid',transaction_id=$1,response_code=$2,response_message='Approved',updated_at=NOW() WHERE id=$3`,[payment.transactionId,payment.responseCode,order.id]);await addEvent(lead.id,'sale',{value:products.front.amount,product_id:'front',transaction_id:payment.transactionId,metadata:{gateway:'nmi'}});
-      setSession(res,{...customer,customerVaultId:payment.customerVaultId,initialTransactionId:payment.transactionId,purchased:['front'],createdAt:Date.now()});
+      const payment=await chargeOpaque({product:products.front,opaqueData:input.opaqueData,customer,invoice:invoice('front')});
+      await run(`UPDATE orders SET status='paid',transaction_id=$1,response_code=$2,response_message='Approved',updated_at=NOW() WHERE id=$3`,[payment.transactionId,payment.responseCode,order.id]);if(payment.customerProfileId&&payment.paymentProfileId)await run(`INSERT INTO gateway_profiles(lead_id,gateway,customer_profile_id,payment_profile_id,created_at,updated_at) VALUES($1,'authorize_net',$2,$3,NOW(),NOW()) ON CONFLICT(lead_id) DO UPDATE SET gateway='authorize_net',customer_profile_id=excluded.customer_profile_id,payment_profile_id=excluded.payment_profile_id,updated_at=NOW()`,[lead.id,payment.customerProfileId,payment.paymentProfileId]);await addEvent(lead.id,'sale',{value:products.front.amount,product_id:'front',transaction_id:payment.transactionId,metadata:{gateway:'authorize_net'}});
+      setSession(res,{...customer,gateway:'authorize_net',customerProfileId:payment.customerProfileId,paymentProfileId:payment.paymentProfileId,purchased:['front'],createdAt:Date.now()});
       return json(res,200,{ok:true,next:products.front.next,transactionId:payment.transactionId});
     } catch(error) {await run(`UPDATE orders SET status='declined',response_code=$1,response_message=$2,updated_at=NOW() WHERE id=$3`,[error.code||'',error.message,order.id]);return json(res,402,{error:error.message,code:error.code||'declined'}); }
   }
@@ -242,10 +244,10 @@ async function api(req,res,url) {
     if(!session) return json(res,401,{error:'Your secure checkout session expired. Please complete the initial checkout again.'});
     if(!product || input.product==='front') return json(res,400,{error:'Unknown upgrade'});
     if(session.purchased.includes(input.product)) return json(res,200,{ok:true,next:product.next,alreadyPurchased:true});
-    const {lead}=await upsertLead({...session,source:'checkout'});let order=(await run(`INSERT INTO orders(lead_id,product_id,product_name,amount,status,created_at,updated_at) VALUES($1,$2,$3,$4,'pending',NOW(),NOW()) ON CONFLICT(lead_id,product_id) DO UPDATE SET status='pending',updated_at=NOW() RETURNING *`,[lead.id,input.product,product.name,product.amount]))[0];
+    const {lead}=await upsertLead({...session,source:'checkout'}),profile=await one(`SELECT * FROM gateway_profiles WHERE lead_id=$1 AND gateway='authorize_net'`,[lead.id]);if(!profile)return json(res,409,{error:'Authorize.Net payment profile is unavailable. Please contact support.'});let order=(await run(`INSERT INTO orders(lead_id,product_id,product_name,amount,status,gateway,created_at,updated_at) VALUES($1,$2,$3,$4,'pending','authorize_net',NOW(),NOW()) ON CONFLICT(lead_id,product_id) DO UPDATE SET status='pending',gateway='authorize_net',updated_at=NOW() RETURNING *`,[lead.id,input.product,product.name,product.amount]))[0];
     try {
-      const payment=await chargeVault({product,customerVaultId:session.customerVaultId,initialTransactionId:session.initialTransactionId,invoice:invoice(input.product)});
-      await run(`UPDATE orders SET status='paid',transaction_id=$1,response_code=$2,response_message='Approved',updated_at=NOW() WHERE id=$3`,[payment.transactionId,payment.responseCode,order.id]);await addEvent(lead.id,'sale',{value:product.amount,product_id:input.product,transaction_id:payment.transactionId,metadata:{gateway:'nmi',one_click:true}});
+      const payment=await chargeProfile({product,customerProfileId:profile.customer_profile_id,paymentProfileId:profile.payment_profile_id,invoice:invoice(input.product)});
+      await run(`UPDATE orders SET status='paid',transaction_id=$1,response_code=$2,response_message='Approved',updated_at=NOW() WHERE id=$3`,[payment.transactionId,payment.responseCode,order.id]);await addEvent(lead.id,'sale',{value:product.amount,product_id:input.product,transaction_id:payment.transactionId,metadata:{gateway:'authorize_net',one_click:true}});
       setSession(res,{...session,purchased:[...session.purchased,input.product]});
       return json(res,200,{ok:true,next:product.next,transactionId:payment.transactionId});
     } catch(error) {await run(`UPDATE orders SET status='declined',response_code=$1,response_message=$2,updated_at=NOW() WHERE id=$3`,[error.code||'',error.message,order.id]);return json(res,402,{error:error.message,code:error.code||'declined'}); }
